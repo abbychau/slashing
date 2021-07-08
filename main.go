@@ -2,53 +2,27 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
-	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"golang.org/x/crypto/acme/autocert"
 )
 
 func main() {
+	log.Println("Start slashing...")
+	target, domains, paths := loadConfigurations()
 
-	//Configurations
-	configFileName := ""
-	if len(os.Args) == 2 && fileExists(os.Args[1]) {
-		configFileName = os.Args[1]
-	} else {
-		fmt.Println("Error: Config file does not exist. \nUsage: ./slashing config.txt")
-		os.Exit(1)
-	}
-	file, err := os.Open(configFileName)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	scanner := bufio.NewScanner(file)
-	domains := []string{}
-	paths := map[string]string{}
-	target := ""
-	for scanner.Scan() {
-		if target == "" {
-			target = strings.Trim(scanner.Text(), " \t\r\n")
-			continue
-		}
-		line := strings.Trim(scanner.Text(), " \t\r\n")
-		if line != "" {
-			parts := strings.Split(line, ":")
-			domains = append(domains, parts[0])
-			paths[parts[0]] = parts[1]
-		}
-	}
-
-	//AutoCert Manager
 	certManager := autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(domains...),
@@ -84,8 +58,10 @@ func main() {
 
 	// HTTP HANDLERS
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Incoming HTTP at ", r)
-		possibleStaticFile := filepath.Join(paths[r.URL.Host], r.URL.Path)
+		log.Println("Incoming HTTP:", r.Host, r.URL.Path)
+
+		possibleStaticFile := filepath.Join(paths[r.Host], r.URL.Path)
+		log.Println(possibleStaticFile)
 		if fileExists(possibleStaticFile) {
 			//File Exists
 			http.ServeFile(w, r, possibleStaticFile)
@@ -100,22 +76,22 @@ func main() {
 	})
 	// http.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("static"))))
 
-	// SERVE, REDIRECT AUTO to HTTPS
+	log.Println("Starting HTTP->HTTPS redirector and HTTPS server...")
 	go func() {
-		http.ListenAndServe(":http", certManager.HTTPHandler(nil))
+		log.Fatal(http.ListenAndServe(":http", certManager.HTTPHandler(nil)))
 	}()
-	log.Fatal(server.ListenAndServeTLS("", "")) // SERVE HTTPS!
-
+	go func() {
+		log.Fatal(server.ListenAndServeTLS("", ""))
+	}()
+	gracefulBlocker(server)
 }
 
 // cacheDir creates and returns a tempory cert directory under current path
 func cacheDir() (dir string) {
 	if u, _ := user.Current(); u != nil {
-		fmt.Println(os.TempDir())
 		//dir = filepath.Join(os.TempDir(), "cache-golang-autocert-"+u.Username)
 		dir = filepath.Join(".", "cache-golang-autocert-"+u.Username)
-		fmt.Println("Should be saving cache-go-lang-autocert-u.username to: ")
-		fmt.Println(dir)
+		log.Printf("Certificate cache directory is : %v \n", dir)
 		if err := os.MkdirAll(dir, 0700); err == nil {
 			return dir
 		}
@@ -124,8 +100,72 @@ func cacheDir() (dir string) {
 }
 
 func fileExists(path string) bool {
-	if _, err := os.Stat(path); err == nil {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	// IsDir is short for fileInfo.Mode().IsDir()
+	if fileInfo.IsDir() {
+		// file is a directory
+		return false
+	} else {
+		// file is not a directory
 		return true
 	}
-	return false
+}
+
+func gracefulBlocker(srv *http.Server) {
+	// Wait for interrupt signal to gracefully shutdown the server with
+	// a timeout of 5 seconds.
+	quit := make(chan os.Signal, 1)
+	// kill (no param) default send syscall.SIGTERM
+	// kill -2 is syscall.SIGINT
+	// kill -9 is syscall.SIGKILL but can't be catch, so don't need add it
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutdown Server ...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server Shutdown With Error: ", err)
+	}
+
+	log.Println("Server exiting")
+}
+func loadConfigurations() (string, []string, map[string]string) {
+	//Configurations
+	configFileName := ""
+	if len(os.Args) == 2 && fileExists(os.Args[1]) {
+		configFileName = os.Args[1]
+	} else {
+		log.Println("Error: Config file does not exist. \nUsage: ./slashing config.txt")
+		os.Exit(1)
+	}
+	file, err := os.Open(configFileName)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	scanner := bufio.NewScanner(file)
+	domains := []string{}
+	paths := map[string]string{}
+	target := ""
+	for scanner.Scan() {
+		if target == "" {
+			target = strings.Trim(scanner.Text(), " \t\r\n")
+			continue
+		}
+		line := strings.Trim(scanner.Text(), " \t\r\n")
+		if line != "" {
+			parts := strings.Split(line, ":")
+			domains = append(domains, parts[0])
+			paths[parts[0]] = parts[1]
+		}
+	}
+	return target, domains, paths
 }
