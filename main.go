@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"os"
 	"os/signal"
 	"os/user"
@@ -21,7 +20,7 @@ import (
 
 func main() {
 	log.Println("Start slashing...")
-	target, domains, paths := loadConfigurations()
+	targets, domains, paths := loadConfigurations()
 
 	certManager := autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
@@ -46,13 +45,18 @@ func main() {
 	}
 
 	// PROXY ROUTE
-	origin, _ := url.Parse(target)
+	targetID := 0
+
 	director := func(req *http.Request) {
 		// req.Header.Add("X-Forwarded-Host", req.Host)
 		// req.Header.Add("X-Origin-Host", origin.Host)
 		// req.Header.Add("X-Forwarded-For", req.Header.Get("X-Forwarded-For") ) // Forward Real IP?
+		if targetID == len(targets) {
+			targetID = 0
+		}
 		req.URL.Scheme = "http"
-		req.URL.Host = origin.Host
+		req.URL.Host = targets[targetID]
+		targetID++
 	}
 	proxy := &httputil.ReverseProxy{Director: director}
 
@@ -112,10 +116,8 @@ func fileExists(path string) bool {
 	if fileInfo.IsDir() {
 		// file is a directory
 		return false
-	} else {
-		// file is not a directory
-		return true
 	}
+	return true
 }
 
 func gracefulBlocker(srv *http.Server) {
@@ -137,7 +139,7 @@ func gracefulBlocker(srv *http.Server) {
 
 	log.Println("Server exiting")
 }
-func loadConfigurations() (string, []string, map[string]string) {
+func loadConfigurations() ([]string, []string, map[string]string) {
 	//Configurations
 	configFileName := ""
 	if len(os.Args) == 2 && fileExists(os.Args[1]) {
@@ -154,10 +156,11 @@ func loadConfigurations() (string, []string, map[string]string) {
 	scanner := bufio.NewScanner(file)
 	domains := []string{}
 	paths := map[string]string{}
-	target := ""
+	targets := []string{}
 	for scanner.Scan() {
-		if target == "" {
-			target = strings.Trim(scanner.Text(), " \t\r\n")
+		if len(targets) == 0 {
+			targetsLine := strings.Trim(scanner.Text(), " \t\r\n")
+			targets = strings.Split(targetsLine, ",")
 			continue
 		}
 		line := strings.Trim(scanner.Text(), " \t\r\n")
@@ -167,5 +170,21 @@ func loadConfigurations() (string, []string, map[string]string) {
 			paths[parts[0]] = parts[1]
 		}
 	}
-	return target, domains, paths
+	return targets, domains, paths
 }
+
+// func startWorkers()
+//     cmd := exec.Command( "shell.sh" )
+//     err := cmd.Start()
+//     if err != nil {
+//         return err
+//     }
+//     pid := cmd.Process.Pid
+//     // use goroutine waiting, manage process
+//     // this is important, otherwise the process becomes in S mode
+//     go func() {
+//         err = cmd.Wait()
+//         fmt.Printf("Command finished with error: %v", err)
+//     }()
+//     return nil
+// }

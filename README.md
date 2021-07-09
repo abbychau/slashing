@@ -4,6 +4,7 @@ This is a HTTPS server, which aims to replace my personal nginx usages.
 
 
 Currently, it serves Reverse Proxying (e.g. to a Python-Flask,Java,PHP-Swoole,etc. server) , Static File Serving , Let's Encrypt with multiple hosts support.
+It also does proxy load-balancing in robin-round manner
 
 ## Usage
 1. Edit config.txt
