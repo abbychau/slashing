@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"context"
 	"io/ioutil"
 	"path/filepath"
 	"strings"
@@ -9,9 +10,27 @@ import (
 	"slashing/utils"
 
 	"github.com/tidwall/redcon"
+	"google.golang.org/appengine/log"
 )
 
-func ListenAndServeRedisServer(addr string) error {
+func RedconShutdowner(ctx context.Context) {
+
+}
+
+type RedisServer struct {
+	*redcon.Server
+	items *hashmap.HashMap
+	path  string
+}
+
+func (r *RedisServer) Shutdown(ctx context.Context) error {
+	log.Info("Redis Shutdown received. Now writing to file...")
+	data, _ := r.items.ToBinary()
+	utils.FilePutContents(data, r.path)
+	return r.Close()
+}
+
+func NewRedisServer(addr string) RedisServer {
 	var items *hashmap.HashMap //"Lockless"
 	var ps redcon.PubSub
 
@@ -25,7 +44,8 @@ func ListenAndServeRedisServer(addr string) error {
 		data, _ := items.ToBinary()
 		utils.FilePutContents(data, path)
 	}
-	err := redcon.ListenAndServe(addr,
+
+	server := redcon.NewServerNetwork("tcp", addr,
 		func(conn redcon.Conn, cmd redcon.Command) {
 			switch strings.ToLower(string(cmd.Args[0])) {
 			default:
@@ -112,5 +132,5 @@ func ListenAndServeRedisServer(addr string) error {
 			// log.Printf("closed: %s, err: %v", conn.RemoteAddr(), err)
 		},
 	)
-	return err
+	return RedisServer{server, items, path}
 }

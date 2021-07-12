@@ -20,6 +20,8 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
+type shutdownFunction func(context.Context) error
+
 func main() {
 	log.Println("Start slashing...")
 
@@ -29,33 +31,37 @@ func main() {
 		HostPolicy: autocert.HostWhitelist(domains...),
 		Cache:      autocert.DirCache(utils.CacheDir("cache-autocert")),
 	}
-	httpServers := []*http.Server{}
+	shutdowners := []shutdownFunction{}
+	redisServer := redis.NewRedisServer(redisAddr)
 	go func() {
 		log.Println("Starting Redis server...")
-		log.Fatal(redis.ListenAndServeRedisServer(redisAddr)) //Graceful shutdown not provided
+		shutdowners = append(shutdowners, redisServer.Shutdown)
+		log.Fatal(redisServer.ListenAndServe())
+
 	}()
 	go func() {
 		log.Println("Starting SQL HTTP server...")
 		SQLHTTPServer := rdbms.ListenAndServeHTTPServer(rdbmsAddr)
-		httpServers = append(httpServers, SQLHTTPServer)
+		shutdowners = append(shutdowners, SQLHTTPServer.Shutdown)
 		log.Fatal(SQLHTTPServer.ListenAndServe())
 	}()
 	if len(domains) > 0 {
 		go func() {
 			log.Println("Starting HTTP->HTTPS redirector and HTTPS server...")
-			log.Fatal(http.ListenAndServe(":http", certManager.HTTPHandler(nil))) //Non-Graceful shutdown is not harmful
+			//Not notifying shutdown is not harmful
+			log.Fatal(http.ListenAndServe(":http", certManager.HTTPHandler(nil)))
 		}()
 		TLSServer := getTLSServer(targets, domains, paths, &certManager)
 		go func() {
 			log.Println("Starting HTTPS server...")
 			log.Fatal(TLSServer.ListenAndServeTLS("", ""))
-			httpServers = append(httpServers, TLSServer)
+			shutdowners = append(shutdowners, TLSServer.Shutdown)
 		}()
 	}
-	gracefulBlocker(httpServers)
+	gracefulBlocker(shutdowners)
 }
 
-func gracefulBlocker(servers []*http.Server) {
+func gracefulBlocker(shutdowners []shutdownFunction) {
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscall.SIGTERM
 	// kill -2 is syscall.SIGINT
@@ -66,8 +72,8 @@ func gracefulBlocker(servers []*http.Server) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) //10 seconds should be enough, or else timeout
 	defer cancel()
-	for _, srv := range servers {
-		if err := srv.Shutdown(ctx); err != nil {
+	for _, shutdowner := range shutdowners {
+		if err := shutdowner(ctx); err != nil {
 			log.Fatal("Server Shutdown With Error: ", err)
 		}
 	}
