@@ -56,8 +56,6 @@ func main() {
 }
 
 func gracefulBlocker(servers []*http.Server) {
-	// Wait for interrupt signal to gracefully shutdown the server with
-	// a timeout of 5 seconds.
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscall.SIGTERM
 	// kill -2 is syscall.SIGINT
@@ -66,7 +64,7 @@ func gracefulBlocker(servers []*http.Server) {
 	<-quit
 	log.Println("Shutdown Server ...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) //10 seconds should be enough, or else timeout
 	defer cancel()
 	for _, srv := range servers {
 		if err := srv.Shutdown(ctx); err != nil {
@@ -103,21 +101,19 @@ func loadConfigurations() ([]string, []string, map[string]string, string, string
 		if line == "" || string(line[0]) == "#" {
 			continue
 		}
-		parts := strings.Split(line, ":")
-		if parts[0] == "backend" {
-			targets = strings.Split(line, ",")
-			continue
+		parts := strings.Split(line, "=")
+		switch parts[0] {
+		case "backend":
+			targets = append(targets, parts[1])
+		case "redis":
+			redis = parts[1]
+		case "rdbms":
+			rdbms = parts[1]
+		case "domain":
+			valueParts := strings.Split(parts[1], ":")
+			domains = append(domains, valueParts[0])
+			paths[valueParts[0]] = valueParts[1]
 		}
-		if parts[0] == "redis" {
-			redis = parts[1] + ":" + parts[2]
-			continue
-		}
-		if parts[0] == "rdbms" {
-			rdbms = parts[1] + ":" + parts[2]
-			continue
-		}
-		domains = append(domains, parts[0])
-		paths[parts[0]] = parts[1]
 
 	}
 	return targets, domains, paths, redis, rdbms
