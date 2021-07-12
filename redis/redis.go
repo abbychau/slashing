@@ -12,7 +12,7 @@ import (
 )
 
 func ListenAndServeRedisServer(addr string) error {
-	items := hashmap.New() //"Lockless"
+	var items *hashmap.HashMap //"Lockless"
 	var ps redcon.PubSub
 
 	fileDir := utils.CacheDir("cache-redis")
@@ -20,7 +20,9 @@ func ListenAndServeRedisServer(addr string) error {
 
 	data, err := ioutil.ReadFile(filepath.Join(".", fileDir, fileName))
 	if err != nil {
-		items.FromBinary(data)
+		items = hashmap.NewFromBinary(data)
+	} else {
+		items = hashmap.New()
 	}
 	err = redcon.ListenAndServe(addr,
 		func(conn redcon.Conn, cmd redcon.Command) {
@@ -42,12 +44,19 @@ func ListenAndServeRedisServer(addr string) error {
 			case "mset":
 				ks := []interface{}{}
 				vs := []interface{}{}
-				for i := 2; i <= len(cmd.Args); i += 2 {
+				for i := 2; i < len(cmd.Args); i += 2 {
 					ks = append(ks, cmd.Args[i])
 					vs = append(vs, cmd.Args[i+1])
 				}
 				items.MSet(ks, vs)
 				conn.WriteString("OK")
+			case "mget":
+				conn.WriteArray(len(cmd.Args) - 1)
+				for i := 1; i < len(cmd.Args); i++ {
+					data, _ := items.Get(cmd.Args[i])
+					conn.WriteBulk(data.([]byte))
+				}
+
 			case "get":
 				if len(cmd.Args) != 2 {
 					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")

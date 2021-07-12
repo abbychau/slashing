@@ -3,11 +3,14 @@ package HashMap
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"github.com/kelindar/binary"
 )
 
 type HashMap struct {
@@ -198,22 +201,30 @@ func (m *HashMap) setNodeEntry(n *Node, e *Entry) bool {
 	return true
 }
 
-func (m *HashMap) dilate(toAdd int64) bool {
-	return (m.size + toAdd) > int64(float64(len(m.nodes))*m.loadFactor*3)
+func (m *HashMap) isDialteRequired(toAdd int64, currentLen int) bool {
+	return (m.size + toAdd) > int64(float64(currentLen)*m.loadFactor*3)
+}
+
+func (m *HashMap) dilateTarget(toAdd int64) int {
+	currentLen := len(m.nodes)
+	for m.isDialteRequired(toAdd, currentLen) {
+		currentLen *= 2
+	}
+	return currentLen
 }
 
 func (m *HashMap) resize(toAdd int64) {
-	if m.dilate(toAdd) {
+	if m.isDialteRequired(toAdd, len(m.nodes)) {
 		m.Lock()
-		for m.dilate(toAdd) {
-			m.doResize()
-		}
+		m.doResize(m.dilateTarget(toAdd))
 		m.Unlock()
 	}
 }
 
-func (m *HashMap) doResize() {
-	capacity := len(m.nodes) * 2
+func (m *HashMap) doResize(capacity int) {
+	if capacity == len(m.nodes) {
+		return
+	}
 	nodes := allocate(capacity)
 	size := int64(0)
 	for _, old := range m.nodes {
@@ -261,6 +272,13 @@ func (m *HashMap) Get(k interface{}) (interface{}, bool) {
 		}
 	}
 	return nil, false
+}
+func (m *HashMap) MGet(ks []interface{}) (returns []interface{}) {
+	for _, v := range ks {
+		v, _ := m.Get(v)
+		returns = append(returns, v)
+	}
+	return
 }
 
 func (m *HashMap) Del(k interface{}) bool {
@@ -329,27 +347,16 @@ func (m *HashMap) ToJSON() ([]byte, error) {
 	return json.Marshal(data)
 }
 
-func (m *HashMap) FromBinary(b []byte) error {
-	data := map[string]interface{}{}
-	err := json.Unmarshal(b, &data)
+func NewFromBinary(b []byte) *HashMap {
+	var v HashMap
+	err := binary.Unmarshal(b, &v)
 	if err != nil {
-		return err
+		log.Printf("Cannot recover from Redis Binary : %v\n", err)
+		return New()
 	}
-	for k, v := range data {
-		m.Set(k, v)
-	}
-	return nil
+	return &v
 }
 
 func (m *HashMap) ToBinary() ([]byte, error) {
-	nodes := m.nodes
-	data := map[string]interface{}{}
-	for _, node := range nodes {
-		next := node.head
-		for next != nil {
-			data[fmt.Sprintf("%v", next.k)] = next.value()
-			next = next.next
-		}
-	}
-	return json.Marshal(data)
+	return binary.Marshal(m)
 }
