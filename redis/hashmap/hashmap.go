@@ -3,14 +3,11 @@ package HashMap
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
-
-	"github.com/kelindar/binary"
 )
 
 type HashMap struct {
@@ -348,15 +345,20 @@ func (m *HashMap) ToJSON() ([]byte, error) {
 }
 
 func NewFromBinary(b []byte) *HashMap {
-	var v HashMap
-	err := binary.Unmarshal(b, &v)
-	if err != nil {
-		log.Printf("Cannot recover from Redis Binary : %v\n", err)
-		return New()
-	}
-	return &v
+	//TODO: write real format
+	h := New()
+	h.FromJSON(b)
+	return h
+	// var v HashMap
+	// err := binary.Unmarshal(b, &v)
+	// if err != nil {
+	// 	log.Printf("Cannot recover from Redis Binary : %v\n", err)
+	// 	return New()
+	// }
+	// return &v
 }
 
 func (m *HashMap) ToBinary() ([]byte, error) {
-	return binary.Marshal(m)
+	return m.ToJSON()
+	// return binary.Marshal(m)
 }

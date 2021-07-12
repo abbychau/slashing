@@ -2,7 +2,6 @@ package HashMap
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -17,7 +16,7 @@ func TestNewHashMap(t *testing.T) {
 		hm.Set(i, i)
 	}
 	end := time.Now().UnixNano()
-	fmt.Println("set:", (end-start)/1e6)
+	t.Log("set:", (end-start)/1e6)
 
 	start = time.Now().UnixNano()
 	for i := 0; i < batch; i++ {
@@ -27,7 +26,7 @@ func TestNewHashMap(t *testing.T) {
 		}
 	}
 	end = time.Now().UnixNano()
-	fmt.Println("get:", (end-start)/1e6)
+	t.Log("get:", (end-start)/1e6)
 }
 
 func TestHashMapCorrectness(t *testing.T) {
@@ -51,7 +50,7 @@ func TestHashMapCorrectness(t *testing.T) {
 		}
 	}
 	end := time.Now().UnixNano()
-	fmt.Println("get:", (end-start)/1e6)
+	t.Log("get:", (end-start)/1e6)
 }
 
 func TestNewHashMap_Sync(t *testing.T) {
@@ -67,7 +66,7 @@ func TestNewHashMap_Sync(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	fmt.Println(hm.size)
+	t.Log(hm.size)
 	if hm.size != int64(batch) {
 		t.Fatal("TestNewHashMap_Sync SET ERR")
 	}
@@ -97,7 +96,7 @@ func TestHashMap_MarshalJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Printf("%s\n", b)
+	t.Logf("%s\n", b)
 }
 
 func TestHashMap_UnmarshalJSON(t *testing.T) {
@@ -111,6 +110,23 @@ func TestHashMap_UnmarshalJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(string(b))
-	fmt.Println(m.Get("1"))
+	t.Log(string(b))
+	t.Log(m.Get("1"))
+}
+
+func TestHashMap_BinaryMarshaling(t *testing.T) {
+	jsonStr := "{\"1\":2,\"abc\":\"haha\",\"m\":{\"hello\":\"world\"}}"
+	m := New()
+	m.FromJSON([]byte(jsonStr))
+	t.Log(m.Get("1"))
+	myBin, err := m.ToBinary()
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	m2 := NewFromBinary(myBin)
+	v, _ := m2.Get("1")
+	if v != 2.0 {
+		t.Errorf("not 2.0, but %v", v)
+	}
+
 }
