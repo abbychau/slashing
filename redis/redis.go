@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"io/ioutil"
+	"log"
 	"path/filepath"
 	"strings"
 
@@ -10,7 +11,6 @@ import (
 	"slashing/utils"
 
 	"github.com/tidwall/redcon"
-	"google.golang.org/appengine/log"
 )
 
 func RedconShutdowner(ctx context.Context) {
@@ -24,7 +24,7 @@ type RedisServer struct {
 }
 
 func (r *RedisServer) Shutdown(ctx context.Context) error {
-	log.Info("Redis Shutdown received. Now writing to file...")
+	log.Println(ctx, "Redis Shutdown received. Now writing to file...")
 	data, _ := r.items.ToBinary()
 	utils.FilePutContents(data, r.path)
 	return r.Close()
