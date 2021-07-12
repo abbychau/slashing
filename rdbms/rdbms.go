@@ -16,8 +16,9 @@ import (
 
 // dbPath creates and returns a directory under current path
 func dbPath() string {
+
 	if u, _ := user.Current(); u != nil {
-		path := filepath.Join(".", "state-rdbms-"+u.Username+".db")
+		path := filepath.Join(utils.CacheDir("cache-rdbms"), "rdbms-state.db")
 		if !utils.FileExists(path) {
 			if file, err := os.Create(path); err == nil {
 				file.Close()

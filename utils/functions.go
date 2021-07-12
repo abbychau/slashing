@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
@@ -23,14 +25,9 @@ func FileExists(path string) bool {
 	return true
 }
 
-func FilePutContents(data []byte, dir string, filename string) {
-	path := filepath.Join(".", dir, filename)
-	var file *os.File
-	if !FileExists(path) {
-		//create file
-		file, _ = os.Create(path)
-	}
-	file.Write(data)
+func FilePutContents(data []byte, path string) {
+	fmt.Println(path)
+	ioutil.WriteFile(path, data, 0644)
 
 }
 
@@ -38,7 +35,7 @@ func FilePutContents(data []byte, dir string, filename string) {
 func CacheDir(prefix string) (dir string) {
 	if u, _ := user.Current(); u != nil {
 		dir = filepath.Join(".", prefix+"-"+u.Username)
-		log.Printf("Certificate cache directory is : %v \n", dir)
+		log.Printf("Cache directory : %v \n", dir)
 		if err := os.MkdirAll(dir, 0700); err == nil {
 			return dir
 		}

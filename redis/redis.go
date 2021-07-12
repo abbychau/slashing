@@ -15,16 +15,17 @@ func ListenAndServeRedisServer(addr string) error {
 	var items *hashmap.HashMap //"Lockless"
 	var ps redcon.PubSub
 
-	fileDir := utils.CacheDir("cache-redis")
-	fileName := "/kv.db"
+	path := filepath.Join(".", utils.CacheDir("cache-redis"), "kv.db")
 
-	data, err := ioutil.ReadFile(filepath.Join(".", fileDir, fileName))
-	if err != nil {
+	if utils.FileExists(path) {
+		data, _ := ioutil.ReadFile(path)
 		items = hashmap.NewFromBinary(data)
 	} else {
 		items = hashmap.New()
+		data, _ := items.ToBinary()
+		utils.FilePutContents(data, path)
 	}
-	err = redcon.ListenAndServe(addr,
+	err := redcon.ListenAndServe(addr,
 		func(conn redcon.Conn, cmd redcon.Command) {
 			switch strings.ToLower(string(cmd.Args[0])) {
 			default:
@@ -77,7 +78,7 @@ func ListenAndServeRedisServer(addr string) error {
 				conn.WriteString("OK")
 			case "save":
 				data, _ := items.ToBinary()
-				utils.FilePutContents(data, fileDir, fileName)
+				utils.FilePutContents(data, path)
 
 			case "publish":
 				if len(cmd.Args) != 3 {
