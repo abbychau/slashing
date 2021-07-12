@@ -1,4 +1,4 @@
-package hashmap
+package HashMap
 
 import (
 	"encoding/json"
@@ -304,7 +304,7 @@ func (e *Entry) value() interface{} {
 	return *(*interface{})(e.p)
 }
 
-func (m *HashMap) UnmarshalJSON(b []byte) error {
+func (m *HashMap) FromJSON(b []byte) error {
 	data := map[string]interface{}{}
 	err := json.Unmarshal(b, &data)
 	if err != nil {
@@ -316,7 +316,32 @@ func (m *HashMap) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (m *HashMap) MarshalJSON() ([]byte, error) {
+func (m *HashMap) ToJSON() ([]byte, error) {
+	nodes := m.nodes
+	data := map[string]interface{}{}
+	for _, node := range nodes {
+		next := node.head
+		for next != nil {
+			data[fmt.Sprintf("%v", next.k)] = next.value()
+			next = next.next
+		}
+	}
+	return json.Marshal(data)
+}
+
+func (m *HashMap) FromBinary(b []byte) error {
+	data := map[string]interface{}{}
+	err := json.Unmarshal(b, &data)
+	if err != nil {
+		return err
+	}
+	for k, v := range data {
+		m.Set(k, v)
+	}
+	return nil
+}
+
+func (m *HashMap) ToBinary() ([]byte, error) {
 	nodes := m.nodes
 	data := map[string]interface{}{}
 	for _, node := range nodes {

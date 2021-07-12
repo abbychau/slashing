@@ -9,7 +9,6 @@ import (
 	"net/http/httputil"
 	"os"
 	"os/signal"
-	"os/user"
 	"path/filepath"
 	"slashing/rdbms"
 	"slashing/redis"
@@ -23,13 +22,109 @@ import (
 
 func main() {
 	log.Println("Start slashing...")
-	targets, domains, paths, redisAddr, rdbmsAddr := loadConfigurations()
 
+	targets, domains, paths, redisAddr, rdbmsAddr := loadConfigurations()
 	certManager := autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(domains...),
-		Cache:      autocert.DirCache(cacheDir()),
+		Cache:      autocert.DirCache(utils.CacheDir("cache-autocert")),
 	}
+	httpServers := []*http.Server{}
+	go func() {
+		log.Println("Starting Redis server...")
+		log.Fatal(redis.ListenAndServeRedisServer(redisAddr)) //Graceful shutdown not provided
+	}()
+	go func() {
+		log.Println("Starting SQL HTTP server...")
+		SQLHTTPServer := rdbms.ListenAndServeHTTPServer(rdbmsAddr)
+		httpServers = append(httpServers, SQLHTTPServer)
+		log.Fatal(SQLHTTPServer.ListenAndServe())
+	}()
+	if len(domains) > 0 {
+		go func() {
+			log.Println("Starting HTTP->HTTPS redirector and HTTPS server...")
+			log.Fatal(http.ListenAndServe(":http", certManager.HTTPHandler(nil))) //Non-Graceful shutdown is not harmful
+		}()
+		TLSServer := getTLSServer(targets, domains, paths, &certManager)
+		go func() {
+			log.Println("Starting HTTPS server...")
+			log.Fatal(TLSServer.ListenAndServeTLS("", ""))
+			httpServers = append(httpServers, TLSServer)
+		}()
+	}
+	gracefulBlocker(httpServers)
+}
+
+func gracefulBlocker(servers []*http.Server) {
+	// Wait for interrupt signal to gracefully shutdown the server with
+	// a timeout of 5 seconds.
+	quit := make(chan os.Signal, 1)
+	// kill (no param) default send syscall.SIGTERM
+	// kill -2 is syscall.SIGINT
+	// kill -9 is syscall.SIGKILL but can't be catch, so don't need add it
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutdown Server ...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Fatal("Server Shutdown With Error: ", err)
+		}
+	}
+
+	log.Println("Server exiting")
+}
+
+//loadConfigurations() returns targets, domains, paths, redis-port, rdbms-port
+func loadConfigurations() ([]string, []string, map[string]string, string, string) {
+	//Configurations
+	configFileName := ""
+	if len(os.Args) == 2 && utils.FileExists(os.Args[1]) {
+		configFileName = os.Args[1]
+	} else {
+		log.Println("Error: Config file does not exist. \nUsage: ./slashing config.txt")
+		os.Exit(1)
+	}
+	file, err := os.Open(configFileName)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	scanner := bufio.NewScanner(file)
+	domains := []string{}
+	paths := map[string]string{}
+	targets := []string{}
+	var redis string
+	var rdbms string
+	for scanner.Scan() {
+		line := strings.Trim(scanner.Text(), " \t\r\n")
+		if line == "" || string(line[0]) == "#" {
+			continue
+		}
+		parts := strings.Split(line, ":")
+		if parts[0] == "backend" {
+			targets = strings.Split(line, ",")
+			continue
+		}
+		if parts[0] == "redis" {
+			redis = parts[1] + ":" + parts[2]
+			continue
+		}
+		if parts[0] == "rdbms" {
+			rdbms = parts[1] + ":" + parts[2]
+			continue
+		}
+		domains = append(domains, parts[0])
+		paths[parts[0]] = parts[1]
+
+	}
+	return targets, domains, paths, redis, rdbms
+}
+
+func getTLSServer(targets []string, domains []string, paths map[string]string, certManager *autocert.Manager) *http.Server {
+
 	server := &http.Server{
 		Addr: ":https",
 		TLSConfig: &tls.Config{
@@ -83,93 +178,5 @@ func main() {
 	})
 	// http.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("static"))))
 
-	log.Println("Starting HTTP->HTTPS redirector and HTTPS server...")
-	go func() {
-		redis.ListenAndServeRedisServer(redisAddr)
-	}()
-	go func() {
-		rdbms.ListenAndServeHTTPServer(rdbmsAddr)
-	}()
-	go func() {
-		log.Fatal(http.ListenAndServe(":http", certManager.HTTPHandler(nil)))
-	}()
-	go func() {
-		log.Fatal(server.ListenAndServeTLS("", ""))
-	}()
-	gracefulBlocker(server)
-}
-
-// cacheDir creates and returns a tempory cert directory under current path
-func cacheDir() (dir string) {
-	if u, _ := user.Current(); u != nil {
-		dir = filepath.Join(".", "cache-golang-autocert-"+u.Username)
-		log.Printf("Certificate cache directory is : %v \n", dir)
-		if err := os.MkdirAll(dir, 0700); err == nil {
-			return dir
-		}
-	}
-	return ""
-}
-
-func gracefulBlocker(srv *http.Server) {
-	// Wait for interrupt signal to gracefully shutdown the server with
-	// a timeout of 5 seconds.
-	quit := make(chan os.Signal, 1)
-	// kill (no param) default send syscall.SIGTERM
-	// kill -2 is syscall.SIGINT
-	// kill -9 is syscall.SIGKILL but can't be catch, so don't need add it
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("Shutdown Server ...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server Shutdown With Error: ", err)
-	}
-
-	log.Println("Server exiting")
-}
-
-//loadConfigurations() returns targets, domains, paths, redis-port, rdbms-port
-func loadConfigurations() ([]string, []string, map[string]string, string, string) {
-	//Configurations
-	configFileName := ""
-	if len(os.Args) == 2 && utils.FileExists(os.Args[1]) {
-		configFileName = os.Args[1]
-	} else {
-		log.Println("Error: Config file does not exist. \nUsage: ./slashing config.txt")
-		os.Exit(1)
-	}
-	file, err := os.Open(configFileName)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	scanner := bufio.NewScanner(file)
-	domains := []string{}
-	paths := map[string]string{}
-	targets := []string{}
-	var redis string
-	var rdbms string
-	for scanner.Scan() {
-		if len(targets) == 0 {
-			targetsLine := strings.Trim(scanner.Text(), " \t\r\n")
-			targets = strings.Split(targetsLine, ",")
-			continue
-		}
-		line := strings.Trim(scanner.Text(), " \t\r\n")
-		if line != "" {
-			parts := strings.Split(line, ":")
-			if parts[0] == "redis" {
-				redis = parts[1] + ":" + parts[2]
-			}
-			if parts[0] == "rdbms" {
-				rdbms = parts[1] + ":" + parts[2]
-			}
-			domains = append(domains, parts[0])
-			paths[parts[0]] = parts[1]
-		}
-	}
-	return targets, domains, paths, redis, rdbms
+	return server
 }

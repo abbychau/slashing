@@ -1,19 +1,28 @@
 package redis
 
 import (
-	"log"
+	"io/ioutil"
+	"path/filepath"
 	"strings"
-	"sync"
+
+	hashmap "slashing/redis/HashMap"
+	"slashing/utils"
 
 	"github.com/tidwall/redcon"
 )
 
-func ListenAndServeRedisServer(addr string) {
-	var mu sync.RWMutex
-	var items = make(map[string][]byte)
+func ListenAndServeRedisServer(addr string) error {
+	items := hashmap.New() //"Lockless"
 	var ps redcon.PubSub
-	go log.Printf("started server at %s", addr)
-	err := redcon.ListenAndServe(addr,
+
+	fileDir := utils.CacheDir("cache-redis")
+	fileName := "/kv.db"
+
+	data, err := ioutil.ReadFile(filepath.Join(".", fileDir, fileName))
+	if err != nil {
+		items.FromBinary(data)
+	}
+	err = redcon.ListenAndServe(addr,
 		func(conn redcon.Conn, cmd redcon.Command) {
 			switch strings.ToLower(string(cmd.Args[0])) {
 			default:
@@ -28,37 +37,39 @@ func ListenAndServeRedisServer(addr string) {
 					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")
 					return
 				}
-				mu.Lock()
-				items[string(cmd.Args[1])] = cmd.Args[2]
-				mu.Unlock()
+				items.Set(string(cmd.Args[1]), cmd.Args[2])
+				conn.WriteString("OK")
+			case "mset":
+				ks := []interface{}{}
+				vs := []interface{}{}
+				for i := 2; i <= len(cmd.Args); i += 2 {
+					ks = append(ks, cmd.Args[i])
+					vs = append(vs, cmd.Args[i+1])
+				}
+				items.MSet(ks, vs)
 				conn.WriteString("OK")
 			case "get":
 				if len(cmd.Args) != 2 {
 					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")
 					return
 				}
-				mu.RLock()
-				val, ok := items[string(cmd.Args[1])]
-				mu.RUnlock()
+				val, ok := items.Get(cmd.Args[1])
 				if !ok {
 					conn.WriteNull()
 				} else {
-					conn.WriteBulk(val)
+					conn.WriteBulk(val.([]byte))
 				}
 			case "del":
 				if len(cmd.Args) != 2 {
 					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")
 					return
 				}
-				mu.Lock()
-				_, ok := items[string(cmd.Args[1])]
-				delete(items, string(cmd.Args[1]))
-				mu.Unlock()
-				if !ok {
-					conn.WriteInt(0)
-				} else {
-					conn.WriteInt(1)
-				}
+				items.Del(string(cmd.Args[1]))
+				conn.WriteString("OK")
+			case "save":
+				data, _ := items.ToBinary()
+				utils.FilePutContents(data, fileDir, fileName)
+
 			case "publish":
 				if len(cmd.Args) != 3 {
 					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")
@@ -79,6 +90,7 @@ func ListenAndServeRedisServer(addr string) {
 					}
 				}
 			}
+
 		},
 		func(conn redcon.Conn) bool {
 			// Use this function to accept or deny the connection.
@@ -90,7 +102,5 @@ func ListenAndServeRedisServer(addr string) {
 			// log.Printf("closed: %s, err: %v", conn.RemoteAddr(), err)
 		},
 	)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return err
 }

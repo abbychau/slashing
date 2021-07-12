@@ -10,6 +10,8 @@ import (
 	"slashing/utils"
 	"sync"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // dbPath creates and returns a directory under current path
@@ -31,7 +33,7 @@ func checkErr(err error) {
 		panic(err)
 	}
 }
-func ListenAndServeHTTPServer(address string) error {
+func ListenAndServeHTTPServer(address string) *http.Server {
 	db, err := sql.Open("sqlite3", dbPath())
 	var mu sync.Mutex
 
@@ -68,7 +70,7 @@ func ListenAndServeHTTPServer(address string) error {
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
-	return s.ListenAndServe()
+	return s
 }
 
 // Response represents a response from the HTTP service.

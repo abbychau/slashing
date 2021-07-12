@@ -1,4 +1,4 @@
-package hashmap
+package HashMap
 
 import (
 	"encoding/json"
