@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	hashmap "slashing/redis/HashMap"
+	"slashing/redis/hashmap"
 	"slashing/utils"
 
 	"github.com/tidwall/redcon"
