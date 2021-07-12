@@ -11,6 +11,9 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"slashing/rdbms"
+	"slashing/redis"
+	"slashing/utils"
 	"strings"
 	"syscall"
 	"time"
@@ -20,7 +23,7 @@ import (
 
 func main() {
 	log.Println("Start slashing...")
-	targets, domains, paths := loadConfigurations()
+	targets, domains, paths, redisAddr, rdbmsAddr := loadConfigurations()
 
 	certManager := autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
@@ -66,7 +69,7 @@ func main() {
 
 		possibleStaticFile := filepath.Join(paths[r.Host], r.URL.Path)
 		log.Println(possibleStaticFile)
-		if fileExists(possibleStaticFile) {
+		if utils.FileExists(possibleStaticFile) {
 			//File Exists
 			http.ServeFile(w, r, possibleStaticFile)
 
@@ -82,6 +85,12 @@ func main() {
 
 	log.Println("Starting HTTP->HTTPS redirector and HTTPS server...")
 	go func() {
+		redis.ListenAndServeRedisServer(redisAddr)
+	}()
+	go func() {
+		rdbms.ListenAndServeHTTPServer(rdbmsAddr)
+	}()
+	go func() {
 		log.Fatal(http.ListenAndServe(":http", certManager.HTTPHandler(nil)))
 	}()
 	go func() {
@@ -93,7 +102,6 @@ func main() {
 // cacheDir creates and returns a tempory cert directory under current path
 func cacheDir() (dir string) {
 	if u, _ := user.Current(); u != nil {
-		//dir = filepath.Join(os.TempDir(), "cache-golang-autocert-"+u.Username)
 		dir = filepath.Join(".", "cache-golang-autocert-"+u.Username)
 		log.Printf("Certificate cache directory is : %v \n", dir)
 		if err := os.MkdirAll(dir, 0700); err == nil {
@@ -101,23 +109,6 @@ func cacheDir() (dir string) {
 		}
 	}
 	return ""
-}
-
-func fileExists(path string) bool {
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return false
-	}
-	// IsDir is short for fileInfo.Mode().IsDir()
-	if fileInfo.IsDir() {
-		// file is a directory
-		return false
-	}
-	return true
 }
 
 func gracefulBlocker(srv *http.Server) {
@@ -139,10 +130,12 @@ func gracefulBlocker(srv *http.Server) {
 
 	log.Println("Server exiting")
 }
-func loadConfigurations() ([]string, []string, map[string]string) {
+
+//loadConfigurations() returns targets, domains, paths, redis-port, rdbms-port
+func loadConfigurations() ([]string, []string, map[string]string, string, string) {
 	//Configurations
 	configFileName := ""
-	if len(os.Args) == 2 && fileExists(os.Args[1]) {
+	if len(os.Args) == 2 && utils.FileExists(os.Args[1]) {
 		configFileName = os.Args[1]
 	} else {
 		log.Println("Error: Config file does not exist. \nUsage: ./slashing config.txt")
@@ -157,6 +150,8 @@ func loadConfigurations() ([]string, []string, map[string]string) {
 	domains := []string{}
 	paths := map[string]string{}
 	targets := []string{}
+	var redis string
+	var rdbms string
 	for scanner.Scan() {
 		if len(targets) == 0 {
 			targetsLine := strings.Trim(scanner.Text(), " \t\r\n")
@@ -166,25 +161,15 @@ func loadConfigurations() ([]string, []string, map[string]string) {
 		line := strings.Trim(scanner.Text(), " \t\r\n")
 		if line != "" {
 			parts := strings.Split(line, ":")
+			if parts[0] == "redis" {
+				redis = parts[1] + ":" + parts[2]
+			}
+			if parts[0] == "rdbms" {
+				rdbms = parts[1] + ":" + parts[2]
+			}
 			domains = append(domains, parts[0])
 			paths[parts[0]] = parts[1]
 		}
 	}
-	return targets, domains, paths
+	return targets, domains, paths, redis, rdbms
 }
-
-// func startWorkers()
-//     cmd := exec.Command( "shell.sh" )
-//     err := cmd.Start()
-//     if err != nil {
-//         return err
-//     }
-//     pid := cmd.Process.Pid
-//     // use goroutine waiting, manage process
-//     // this is important, otherwise the process becomes in S mode
-//     go func() {
-//         err = cmd.Wait()
-//         fmt.Printf("Command finished with error: %v", err)
-//     }()
-//     return nil
-// }

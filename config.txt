@@ -1,3 +1,5 @@
 127.0.0.1:9527,127.0.0.1:9528,127.0.0.1:9529,127.0.0.1:9530
+redis:127.0.0.1:10060
+rdbms:127.0.0.1:10061
 leveling.m2np.com:/home/wwwroot/leveling.m2np.com
 level.m2np.com:/root/level
