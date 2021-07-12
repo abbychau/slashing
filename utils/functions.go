@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -26,7 +25,6 @@ func FileExists(path string) bool {
 }
 
 func FilePutContents(data []byte, path string) {
-	fmt.Println(path)
 	ioutil.WriteFile(path, data, 0644)
 
 }

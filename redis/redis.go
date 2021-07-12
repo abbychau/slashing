@@ -45,7 +45,7 @@ func ListenAndServeRedisServer(addr string) error {
 			case "mset":
 				ks := []interface{}{}
 				vs := []interface{}{}
-				for i := 2; i < len(cmd.Args); i += 2 {
+				for i := 1; i < len(cmd.Args)-1; i += 2 {
 					ks = append(ks, cmd.Args[i])
 					vs = append(vs, cmd.Args[i+1])
 				}
