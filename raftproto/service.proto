@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+option go_package = "github.com/abbychau/slashing/raftproto";
+
+message String {
+	string value = 1;
+}
+
+message RedisRequest {
+    string command = 1;
+}
+
+message RedisResponse {
+	bool isSuccess = 1;
+    string value = 2;
+}
+
+service DistrubutedLogs {
+	rpc ApplyLogs(String) returns (String) {}
+	rpc GetWords(RedisRequest) returns (RedisResponse) {}
+}

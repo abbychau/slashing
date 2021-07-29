@@ -47,3 +47,6 @@ You should see logs similar to:
 ## Why it is called slashing
 Because it slashed NGINX, Redis, MySQL(although it is a sqlite behind). And AutoCert is so comfortable!
 
+## Development Note
+- install protoc and proto-go-gen: https://grpc.io/docs/languages/go/quickstart/
+- `protoc --proto_path=raftproto --go_out=raftproto --go_opt=paths=source_relative service.proto`

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"slashing/redis/hashmap"
+	"slashing/redis/skiplist"
 	"slashing/utils"
 
 	"github.com/tidwall/redcon"
@@ -31,6 +32,8 @@ func (r *RedisServer) Shutdown(ctx context.Context) error {
 }
 
 func NewRedisServer(addr string) RedisServer {
+	setItems := skiplist.New() //"Lockless" (TODO: Set)
+
 	var items *hashmap.HashMap //"Lockless"
 	var ps redcon.PubSub
 
@@ -77,7 +80,22 @@ func NewRedisServer(addr string) RedisServer {
 					data, _ := items.Get(cmd.Args[i])
 					conn.WriteBulk(data.([]byte))
 				}
+			case "sadd":
+				if len(cmd.Args) != 3 {
+					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")
+					return
+				}
 
+				setItems.Set(HashToFloat64(string(cmd.Args[1])), cmd.Args[2])
+				conn.WriteString("OK")
+			case "smembers":
+				if len(cmd.Args) != 3 {
+					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")
+					return
+				}
+
+				setItems.Get(HashToFloat64(string(cmd.Args[1])))
+				conn.WriteString("TODO: WIP")
 			case "get":
 				if len(cmd.Args) != 2 {
 					conn.WriteError("ERR wrong number of arguments for '" + string(cmd.Args[0]) + "' command")

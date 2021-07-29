@@ -1,3 +1,5 @@
+github.com/abbychau/jumplist v0.0.0-20210722090223-dc0a454cffc0 h1:ZfkOXKN8CtsQPMQvQaMaV8YU65hde/O+tHNi7pJ4vjA=
+github.com/abbychau/jumplist v0.0.0-20210722090223-dc0a454cffc0/go.mod h1:LyrBHt/TavyG3CbPzkJzuxHLBm1TK5QoSiMB0ztzuUw=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/kelindar/binary v1.0.10 h1:ikOtFJbpLwYxJJUGcNKIDxallQWwzD/Oyo34FqLvi20=
 github.com/kelindar/binary v1.0.10/go.mod h1:dxvxQNUwEefl9p3BZz9K+8D6JuEnViify8ohGSNWVWU=

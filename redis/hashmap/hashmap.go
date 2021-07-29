@@ -258,7 +258,9 @@ func (m *HashMap) getNodeEntry(n *Node, k interface{}) *Entry {
 	}
 	return nil
 }
-
+func (m *HashMap) Exists(k interface{}) bool {
+	return m.nodes[indexOf(hash(k), len(m.nodes))] != nil
+}
 func (m *HashMap) Get(k interface{}) (interface{}, bool) {
 	nodes := m.nodes
 	n := nodes[indexOf(hash(k), len(nodes))]
